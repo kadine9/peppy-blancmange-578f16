@@ -33,6 +33,8 @@ const DEFAULT_TABS: ClipTab[] = [
   }
 ];
 
+const MARKER_RE = /--- \[Paste #\d+\] ---/g;
+
 export default function App() {
   const [workspaceId, setWorkspaceId] = useState<string>("main-workspace");
   const [tabs, setTabs] = useState<ClipTab[]>(DEFAULT_TABS);
@@ -43,6 +45,8 @@ export default function App() {
   const [statusMsg, setStatusMsg] = useState<{ text: string; type: "success" | "error" | "info" } | null>(null);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  // Last known selection, used by the onChange fallback to locate a paste
+  const selRef = useRef({ start: 0, end: 0 });
 
   // Sync workspace URL on hash change
   useEffect(() => {
@@ -134,50 +138,72 @@ export default function App() {
     saveState(updated);
   };
 
-  // Auto-segment on paste event
-  const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
-    const pastedData = e.clipboardData.getData("text");
-    if (!pastedData) return;
+  // ---- Auto-segment on paste ----
 
-    e.preventDefault();
+  // Pure helper: inserts `pasted` at [start, end) with a new segment marker.
+  const segmentPaste = (currentVal: string, start: number, end: number, pasted: string) => {
+    const before = currentVal.slice(0, start);
+    const after = currentVal.slice(end);
+    const n = (currentVal.match(MARKER_RE) || []).length + 1;
 
-    const target = e.currentTarget;
-    const start = target.selectionStart;
-    const end = target.selectionEnd;
-    const currentVal = activeTab ? activeTab.content : "";
-
-    // Count existing segment markers
-    const existingMarkers = (currentVal.match(/--- \[Paste #\d+\] ---/g) || []).length;
-    const nextMarkerIndex = existingMarkers + 1;
-
-    let segmentHeader = `--- [Paste #${nextMarkerIndex}] ---\n\n`;
-
-    // If starting fresh or at top without any header, prefix with marker
-    if (currentVal.trim().length === 0) {
-      segmentHeader = `--- [Paste #1] ---\n\n`;
-    } else {
-      // Ensure spacing before new paste segment if inserting after existing content
-      const needsPrefixNewline = start > 0 && !currentVal.slice(0, start).endsWith("\n\n");
-      if (needsPrefixNewline) {
-        segmentHeader = `\n\n${segmentHeader}`;
-      }
+    let header = `--- [Paste #${n}] ---\n\n`;
+    if (before.trim().length > 0 && !before.endsWith("\n\n")) {
+      header = (before.endsWith("\n") ? "\n" : "\n\n") + header;
     }
+    // Keep following content separated from the new segment
+    const trailing = after.trim().length > 0 ? "\n\n" : "";
+    const inserted = `${header}${pasted}${trailing}`;
 
-    const insertedText = `${segmentHeader}${pastedData}`;
-    const newVal = currentVal.slice(0, start) + insertedText + currentVal.slice(end);
+    return { newVal: before + inserted + after, cursor: start + inserted.length, n };
+  };
 
+  const applyPaste = (start: number, end: number, pasted: string) => {
+    const current = activeTab ? activeTab.content : "";
+    const { newVal, cursor, n } = segmentPaste(current, start, end, pasted);
     handleContentChange(newVal);
 
-    // Set cursor position after the pasted text
     setTimeout(() => {
-      if (textareaRef.current) {
-        const newCursorPos = start + insertedText.length;
-        textareaRef.current.selectionStart = newCursorPos;
-        textareaRef.current.selectionEnd = newCursorPos;
+      const el = textareaRef.current;
+      if (el) {
+        el.focus();
+        el.selectionStart = el.selectionEnd = cursor;
       }
     }, 0);
 
-    showToast(`Auto-segmented Paste #${nextMarkerIndex}!`, "info");
+    showToast(`Auto-segmented Paste #${n}!`, "info");
+  };
+
+  const rememberSelection = (el: HTMLTextAreaElement) => {
+    selRef.current = { start: el.selectionStart, end: el.selectionEnd };
+  };
+
+  // Primary path: normal paste events with clipboard data
+  const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const text = e.clipboardData?.getData("text");
+    if (!text) return; // let the browser paste; handleChange will catch it
+    e.preventDefault();
+    applyPaste(e.currentTarget.selectionStart, e.currentTarget.selectionEnd, text);
+  };
+
+  // Fallback path: pastes where clipboardData was empty or unavailable
+  const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const native = e.nativeEvent as InputEvent;
+    const type = native.inputType;
+
+    if (type === "insertFromPaste" || type === "insertFromDrop") {
+      const newVal = e.target.value;
+      const current = activeTab ? activeTab.content : "";
+      const { start, end } = selRef.current;
+      const pastedLen = newVal.length - (current.length - (end - start));
+      const pasted = pastedLen > 0 ? newVal.slice(start, start + pastedLen) : "";
+
+      if (pasted) {
+        applyPaste(start, end, pasted);
+        return;
+      }
+    }
+
+    handleContentChange(e.target.value);
   };
 
   const addTab = () => {
@@ -185,7 +211,7 @@ export default function App() {
     const newTab: ClipTab = {
       id: newId,
       name: `Tab ${tabs.length + 1}`,
-      content: "--- [Paste #1] ---\n\n"
+      content: ""
     };
     const updated = [...tabs, newTab];
     saveState(updated);
@@ -408,7 +434,7 @@ export default function App() {
 
         {/* Main Grid: Master Input & Segment Preview */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          
+
           {/* Master Editor */}
           <section className="lg:col-span-2 bg-white border border-[#e4d6f7] rounded-3xl p-6 shadow-xl flex flex-col space-y-3">
             <div className="flex justify-between items-center">
@@ -422,8 +448,12 @@ export default function App() {
             <textarea
               ref={textareaRef}
               value={activeTab?.content || ""}
-              onChange={(e) => handleContentChange(e.target.value)}
+              onChange={handleChange}
               onPaste={handlePaste}
+              onSelect={(e) => rememberSelection(e.currentTarget)}
+              onKeyUp={(e) => rememberSelection(e.currentTarget)}
+              onMouseUp={(e) => rememberSelection(e.currentTarget)}
+              onFocus={(e) => rememberSelection(e.currentTarget)}
               placeholder="Paste content here to segment automatically..."
               className="w-full h-[55vh] p-4 bg-[#f3eeff]/30 border border-[#e4d6f7] rounded-2xl focus:outline-none focus:ring-2 focus:ring-[#b85fcc] font-mono text-sm text-[#402c55] resize-none"
             />
@@ -497,4 +527,4 @@ export default function App() {
       </div>
     </div>
   );
-                        }
+}
