@@ -5,7 +5,8 @@ const sb = createClient(import.meta.env.VITE_SUPABASE_URL, import.meta.env.VITE_
 const CLIENT_ID = Math.random().toString(36).slice(2);
 const uid = () => Math.random().toString(36).slice(2, 10);
 const FIRST = "--- [Paste #1] ---\n\n";
-const TAB_RE = /^=== \[Tab: (.*?)\] ===[ \t]*$/gm;
+// Accepts "===== Name =====" (your original format) and "=== [Tab: Name] ==="
+const TAB_RE = /^(?:=== \[Tab: (.*?)\] ===|={3,}[ \t]*([^=\s].*?)[ \t]*={3,})[ \t]*$/gm;
 const WASHI = ["#FFD9EC", "#D9EEFF", "#FFF0C7", "#E1D6FF", "#D3F6E7"];
 
 // Every tab is its own segmented buffer: "--- [Paste #n] ---" markers split it into segments.
@@ -18,14 +19,14 @@ const newTab = (name, content = FIRST) => ({ id: uid(), name, content: normalize
 const getFragments = (text) =>
   text.split(/--- \[Paste #\d+\] ---/g).map(s => s.trim()).filter(Boolean);
 
-const serialize = (tabs) => tabs.map(t => `=== [Tab: ${t.name}] ===\n${t.content}`).join("\n\n");
+const serialize = (tabs) => tabs.map(t => `===== ${t.name} =====\n\n${t.content}`).join("\n\n");
 function parseTabs(text) {
   const m = [...text.matchAll(TAB_RE)];
   if (!m.length) return null;
   return m.map((x, i) => {
     const start = x.index + x[0].length;
     const end = i + 1 < m.length ? m[i + 1].index : text.length;
-    return newTab(x[1].trim() || `Tab ${i + 1}`, text.slice(start, end).replace(/^\n/, ""));
+    return newTab((x[1] ?? x[2] ?? "").trim() || `Tab ${i + 1}`, text.slice(start, end).replace(/^\n+/, ""));
   });
 }
 function download(name, text) {
@@ -293,7 +294,7 @@ export default function App() {
         <div className="modal" onClick={() => setImportOpen(false)}>
           <div className="card" onClick={e => e.stopPropagation()}>
             <strong>Paste tabs</strong>
-            <p className="sub">Paste text from “Copy all tabs” or a downloaded file. Each “=== [Tab: Name] ===” section becomes a tab with its own segments. Plain text becomes one tab.</p>
+            <p className="sub">Paste text from “Copy all tabs” or a downloaded file. Each “===== Name =====” (or “=== [Tab: Name] ===”) section becomes a tab, keeping its own “--- [Paste #n] ---” segments. Plain text becomes one tab.</p>
             <textarea autoFocus value={importText} onChange={e => setImportText(e.target.value)} />
             <div className="row" style={{ justifyContent: "flex-end" }}>
               <button className="pill" onClick={() => setImportOpen(false)}>Cancel</button>
