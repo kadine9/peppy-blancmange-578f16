@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   Sparkles,
   Copy,
@@ -24,7 +24,7 @@ const DEFAULT_TABS: ClipTab[] = [
   {
     id: "tab-1",
     name: "General Notes",
-    content: "--- [Paste #1] ---\nWelcome to ClipMaster Pro!\n\n--- [Paste #2] ---\nPaste multiple snippets here. You can manage tabs and export content seamlessly."
+    content: "--- [Paste #1] ---\nWelcome to ClipMaster Pro!\n\n--- [Paste #2] ---\nPaste multiple snippets here. Whenever you paste, a new segment marker is created automatically!"
   },
   {
     id: "tab-2",
@@ -41,6 +41,8 @@ export default function App() {
   const [editingName, setEditingName] = useState<string>("");
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
   const [statusMsg, setStatusMsg] = useState<{ text: string; type: "success" | "error" | "info" } | null>(null);
+
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Sync workspace URL on hash change
   useEffect(() => {
@@ -130,6 +132,52 @@ export default function App() {
   const handleContentChange = (val: string) => {
     const updated = tabs.map((t) => (t.id === activeTabId ? { ...t, content: val } : t));
     saveState(updated);
+  };
+
+  // Auto-segment on paste event
+  const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const pastedData = e.clipboardData.getData("text");
+    if (!pastedData) return;
+
+    e.preventDefault();
+
+    const target = e.currentTarget;
+    const start = target.selectionStart;
+    const end = target.selectionEnd;
+    const currentVal = activeTab ? activeTab.content : "";
+
+    // Count existing segment markers
+    const existingMarkers = (currentVal.match(/--- \[Paste #\d+\] ---/g) || []).length;
+    const nextMarkerIndex = existingMarkers + 1;
+
+    let segmentHeader = `--- [Paste #${nextMarkerIndex}] ---\n\n`;
+
+    // If starting fresh or at top without any header, prefix with marker
+    if (currentVal.trim().length === 0) {
+      segmentHeader = `--- [Paste #1] ---\n\n`;
+    } else {
+      // Ensure spacing before new paste segment if inserting after existing content
+      const needsPrefixNewline = start > 0 && !currentVal.slice(0, start).endsWith("\n\n");
+      if (needsPrefixNewline) {
+        segmentHeader = `\n\n${segmentHeader}`;
+      }
+    }
+
+    const insertedText = `${segmentHeader}${pastedData}`;
+    const newVal = currentVal.slice(0, start) + insertedText + currentVal.slice(end);
+
+    handleContentChange(newVal);
+
+    // Set cursor position after the pasted text
+    setTimeout(() => {
+      if (textareaRef.current) {
+        const newCursorPos = start + insertedText.length;
+        textareaRef.current.selectionStart = newCursorPos;
+        textareaRef.current.selectionEnd = newCursorPos;
+      }
+    }, 0);
+
+    showToast(`Auto-segmented Paste #${nextMarkerIndex}!`, "info");
   };
 
   const addTab = () => {
@@ -372,8 +420,10 @@ export default function App() {
               </span>
             </div>
             <textarea
+              ref={textareaRef}
               value={activeTab?.content || ""}
               onChange={(e) => handleContentChange(e.target.value)}
+              onPaste={handlePaste}
               placeholder="Paste content here to segment automatically..."
               className="w-full h-[55vh] p-4 bg-[#f3eeff]/30 border border-[#e4d6f7] rounded-2xl focus:outline-none focus:ring-2 focus:ring-[#b85fcc] font-mono text-sm text-[#402c55] resize-none"
             />
@@ -390,7 +440,7 @@ export default function App() {
                   <Scissors className="w-8 h-8 opacity-40 mb-2 text-[#b85fcc]" />
                   <p className="text-xs font-semibold">No segments detected yet.</p>
                   <p className="text-[11px] opacity-75 mt-1">
-                    Paste text with headers like `--- [Paste #1] ---` to split segments automatically.
+                    Paste text anywhere into the editor to automatically create a new segment header.
                   </p>
                 </div>
               ) : (
@@ -447,4 +497,4 @@ export default function App() {
       </div>
     </div>
   );
-}
+                        }
