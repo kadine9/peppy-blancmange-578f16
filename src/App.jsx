@@ -35,6 +35,8 @@ function download(name, text) {
   a.download = name; a.click(); URL.revokeObjectURL(a.href);
 }
 const safeName = (s) => (s || "tab").replace(/[^\w\- ]+/g, "").trim().replace(/\s+/g, "_") || "tab";
+const esc = (x) => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const hl = (text, q) => q ? text.split(new RegExp(`(${esc(q)})`, "gi")).map((p, i) => i % 2 ? <mark key={i}>{p}</mark> : p) : text;
 const go = (id) => document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
 
 function getWorkspaceId() {
@@ -224,6 +226,23 @@ textarea::placeholder{color:rgba(124,104,146,.6)}
 @keyframes twinkle{0%,100%{opacity:1;transform:scale(1) rotate(0)}50%{opacity:.4;transform:scale(.75) rotate(12deg)}}
 @media(prefers-reduced-motion:reduce){.floater,.floater-twinkle{animation:none}}
 
+/* search */
+.search{position:relative;z-index:5}
+.sbox{display:flex;align-items:center;gap:.6rem;padding:.55rem .9rem;background:rgba(255,255,255,.85);border:2px solid var(--border);border-radius:999px;transition:box-shadow .2s,border-color .2s}
+.sbox:focus-within{border-color:rgba(184,95,204,.5);box-shadow:0 0 0 4px rgba(184,95,204,.18)}
+.sbox input{flex:1;min-width:0;border:0;outline:0;background:none;font:inherit;font-size:.9rem;color:var(--fg)}
+.sbox svg{color:var(--primary);flex-shrink:0}
+.sres{position:absolute;left:0;right:0;top:calc(100% + .5rem);max-height:55vh;overflow-y:auto;background:#fff;border:1px solid var(--border);border-radius:1.4rem;padding:.4rem;box-shadow:0 20px 40px -16px rgba(184,95,204,.45)}
+.sr{display:block;width:100%;text-align:left;padding:.55rem .7rem;border-radius:.9rem}
+.sr:hover,.sr:focus-visible{background:#f6eefd;outline:0}
+.sr b{font-size:.75rem;color:var(--primary)}
+.sr small{display:block;margin-top:.15rem;color:var(--muted);font:.72rem "JetBrains Mono",ui-monospace,monospace;overflow-wrap:anywhere}
+.sempty,.scount{padding:.6rem 1rem;text-align:center;color:var(--muted);font-size:.8rem;font-weight:600}
+mark{background:#FFE08A;color:var(--fg);border-radius:.25rem;padding:0 .1rem}
+.tab.hit{border-color:rgba(255,176,32,.8)}
+.seg.flash{animation:flash 1.8s ease-out}
+@keyframes flash{0%,60%{box-shadow:0 0 0 4px rgba(255,176,32,.6)}100%{box-shadow:0 10px 30px -14px rgba(184,95,204,.3)}}
+
 /* modal + toast */
 .modal{position:fixed;inset:0;z-index:50;display:grid;place-items:center;padding:1rem;background:rgba(64,44,85,.35);backdrop-filter:blur(4px)}
 .modal .card{width:100%;max-width:40rem;display:flex;flex-direction:column;gap:.75rem;background:rgba(255,255,255,.95)}
@@ -240,11 +259,38 @@ export default function App() {
   const [importOpen, setImportOpen] = useState(false);
   const [importText, setImportText] = useState("");
   const [renamingId, setRenamingId] = useState(null);
+  const [query, setQuery] = useState("");
+  const [resultsOpen, setResultsOpen] = useState(false);
+  const [flash, setFlash] = useState("");
   const timer = useRef(null), toastTimer = useRef(null), loaded = useRef(false);
   const taRef = useRef(null), pendingCursor = useRef(null);
 
   const active = tabs.find(t => t.id === activeId) || tabs[0];
   const frags = useMemo(() => getFragments(active.content), [active.content]);
+  const qt = query.trim();
+  const results = useMemo(() => {
+    if (!qt) return [];
+    const ql = qt.toLowerCase(), out = [];
+    for (const t of tabs) {
+      if (t.name.toLowerCase().includes(ql)) out.push({ tabId: t.id, tabName: t.name, seg: null });
+      getFragments(t.content).forEach((f, i) => {
+        const at = f.toLowerCase().indexOf(ql);
+        if (at < 0) return;
+        const st = Math.max(0, at - 30);
+        out.push({ tabId: t.id, tabName: t.name, seg: i, snippet: (st ? "…" : "") + f.slice(st, at + qt.length + 70).replace(/\s+/g, " ") });
+      });
+    }
+    return out;
+  }, [tabs, qt]);
+  const hitTabs = useMemo(() => new Set(results.map(r => r.tabId)), [results]);
+  const pick = (r) => {
+    setResultsOpen(false); setActiveId(r.tabId);
+    if (r.seg != null) {
+      setFlash(`${r.tabId}:${r.seg}`);
+      setTimeout(() => go(`seg-${r.seg}`), 80);
+      setTimeout(() => setFlash(""), 1900);
+    }
+  };
   const say = (m) => { setToast(m); clearTimeout(toastTimer.current); toastTimer.current = setTimeout(() => setToast(""), 2200); };
 
   useLayoutEffect(() => {
@@ -401,9 +447,33 @@ export default function App() {
         </div>
       </header>
 
+      <div className="search">
+        <div className="sbox">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round"><circle cx="11" cy="11" r="7" /><path d="M20 20l-3.5-3.5" /></svg>
+          <input type="text" value={query} placeholder="Search tabs and segments…" spellCheck={false} autoCorrect="off" autoCapitalize="off"
+            onChange={e => { setQuery(e.target.value); setResultsOpen(true); }}
+            onFocus={() => setResultsOpen(true)} onBlur={() => setResultsOpen(false)}
+            onKeyDown={e => { if (e.key === "Escape") { setQuery(""); e.target.blur(); } if (e.key === "Enter" && results[0]) { pick(results[0]); e.target.blur(); } }} />
+          {query && <button className="ib" title="Clear search" onMouseDown={e => e.preventDefault()} onClick={() => setQuery("")}>×</button>}
+        </div>
+        {resultsOpen && qt && (
+          <div className="sres" onMouseDown={e => e.preventDefault()}>
+            {results.length === 0 ? <div className="sempty">No matches for “{qt}”.</div> : <>
+              <div className="scount">{results.length} match{results.length !== 1 ? "es" : ""}{results.length > 50 ? " · showing 50" : ""}</div>
+              {results.slice(0, 50).map((r, i) => (
+                <button key={i} className="sr" onClick={() => pick(r)}>
+                  <b>{r.tabName}{r.seg != null ? ` · Segment ${r.seg + 1}` : " · tab name"}</b>
+                  {r.snippet && <small>{hl(r.snippet, qt)}</small>}
+                </button>
+              ))}
+            </>}
+          </div>
+        )}
+      </div>
+
       <div className="tabs">
         {tabs.map(t => (
-          <div key={t.id} className={`tab ${t.id === active.id ? "active" : ""}`} onClick={() => setActiveId(t.id)}>
+          <div key={t.id} className={`tab ${t.id === active.id ? "active" : ""} ${qt && hitTabs.has(t.id) ? "hit" : ""}`} onClick={() => setActiveId(t.id)}>
             {renamingId === t.id ? (
               <input autoFocus defaultValue={t.name} onClick={e => e.stopPropagation()}
                 onBlur={e => { commit(tabs.map(x => x.id === t.id ? { ...x, name: e.target.value.trim() || x.name } : x)); setRenamingId(null); }}
@@ -443,7 +513,7 @@ export default function App() {
             {frags.length === 0 ? (
               <div className="empty">No segments detected yet.<br />Paste something into the master input.</div>
             ) : frags.map((f, i) => (
-              <div key={i} id={`seg-${i}`} className="seg">
+              <div key={i} id={`seg-${i}`} className={`seg ${flash === `${active.id}:${i}` ? "flash" : ""}`}>
                 <div className="tape" style={{ background: WASHI[i % WASHI.length] }} />
                 <div className="nav">
                   {frags.map((_, j) => <button key={j} className={`nb ${j === i ? "on" : ""}`} onClick={() => go(`seg-${j}`)}>{j + 1}</button>)}
@@ -457,7 +527,7 @@ export default function App() {
                     {i < frags.length - 1 && <button className="ib" title="Next" onClick={() => go(`seg-${i + 1}`)}>⌄</button>}
                   </div>
                 </div>
-                <pre>{f}</pre>
+                <pre>{hl(f, qt)}</pre>
                 <div className="sf" id={`seg-foot-${i}`}>
                   <span className="lbl" style={{ fontSize: 9 }}>End of Seg {i + 1}</span>
                   <button className="ib" onClick={() => go(`copy-head-${i}`)}>Jump to Copy</button>
