@@ -110,7 +110,7 @@ const CSS = `
   --bg1:#FBF4FF; --bg2:#EAF6FF; --bg3:#FFF0F7;
 }
 *{box-sizing:border-box}
-html,body{margin:0}
+html,body{margin:0;overflow-x:hidden}
 body{
   color:var(--fg); font-family:"Nunito","Quicksand",ui-rounded,system-ui,-apple-system,"Segoe UI",sans-serif;
   background:
@@ -122,7 +122,7 @@ body{
 button{font:inherit;cursor:pointer;border:0;background:none;color:inherit}
 button:disabled{opacity:.5;cursor:not-allowed}
 
-.wrap{position:relative;z-index:1;max-width:80rem;margin:0 auto;padding:1.5rem 1rem 7rem;display:flex;flex-direction:column;gap:1.25rem}
+.wrap{position:relative;z-index:1;width:100%;max-width:80rem;overflow-x:clip;margin:0 auto;padding:1.5rem 1rem 7rem;display:flex;flex-direction:column;gap:1.25rem}
 @media(min-width:640px){.wrap{padding:2rem 1.5rem 7rem;gap:1.5rem}}
 @media(min-width:768px){.wrap{padding:2.5rem 2.5rem 7rem}}
 .row{display:flex;flex-wrap:wrap;align-items:center;gap:.5rem}
@@ -182,10 +182,11 @@ button:disabled{opacity:.5;cursor:not-allowed}
 .tab.add:hover{transform:scale(1.05)}
 
 /* editor + library */
-.grid2{display:grid;grid-template-columns:1fr;gap:1.5rem}
-@media(min-width:1024px){.grid2{grid-template-columns:2fr 1fr;gap:2rem}}
+.grid2{display:grid;grid-template-columns:minmax(0,1fr);gap:1.5rem}
+.grid2>section{min-width:0}
+@media(min-width:1024px){.grid2{grid-template-columns:minmax(0,2fr) minmax(0,1fr);gap:2rem}}
 .lbl{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.1em;color:var(--muted)}
-textarea{width:100%;height:50vh;padding:1.25rem;background:rgba(255,255,255,.9);border:2px solid var(--border);border-radius:1.75rem;outline:0;
+textarea{width:100%;max-width:100%;white-space:pre-wrap;overflow-wrap:anywhere;height:50vh;padding:1.25rem;background:rgba(255,255,255,.9);border:2px solid var(--border);border-radius:1.75rem;outline:0;
   font:.85rem/1.5 "JetBrains Mono",ui-monospace,monospace;color:rgba(64,44,85,.9);resize:none;box-shadow:0 1px 3px rgba(64,44,85,.06);transition:box-shadow .2s,border-color .2s}
 @media(min-width:640px){textarea{height:55vh;padding:2rem}}
 textarea:focus{border-color:rgba(184,95,204,.5);box-shadow:0 0 0 4px rgba(184,95,204,.18)}
@@ -193,9 +194,9 @@ textarea::placeholder{color:rgba(124,104,146,.6)}
 .modal textarea{height:40vh;padding:1rem;border-radius:1.25rem}
 .seglist{display:flex;flex-direction:column;gap:1.25rem;height:50vh;overflow-y:auto;padding:.5rem .25rem .25rem 0}
 @media(min-width:640px){.seglist{height:55vh}}
-.seg{position:relative;background:#fff;border:1px solid var(--border);border-radius:1.4rem;padding:1.4rem 1.1rem 1rem;box-shadow:0 10px 30px -14px rgba(184,95,204,.3)}
+.seg{position:relative;min-width:0;max-width:100%;background:#fff;border:1px solid var(--border);border-radius:1.4rem;padding:1.4rem 1.1rem 1rem;box-shadow:0 10px 30px -14px rgba(184,95,204,.3)}
 .seg .tape{position:absolute;top:-.7rem;left:50%;width:5rem;height:1.4rem;transform:translateX(-50%) rotate(-3deg);border-radius:.15rem;opacity:.9;box-shadow:0 1px 3px rgba(0,0,0,.1)}
-.seg pre{margin:0;font:.75rem "JetBrains Mono",ui-monospace,monospace;white-space:pre-wrap;word-break:break-word;color:rgba(64,44,85,.85)}
+.seg pre{margin:0;max-width:100%;overflow-x:auto;font:.75rem "JetBrains Mono",ui-monospace,monospace;white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-all;color:rgba(64,44,85,.85)}
 .nav{display:flex;gap:.4rem;overflow-x:auto;padding-bottom:.6rem;margin-bottom:.6rem;border-bottom:1px solid var(--border)}
 .nb{padding:.2rem .7rem;background:#fff;border:1px solid var(--border);border-radius:.5rem;font-size:.75rem;font-weight:700;color:var(--muted);flex-shrink:0}
 .nb.on,.nb:hover{border-color:rgba(184,95,204,.5);color:var(--primary)}
@@ -433,7 +434,7 @@ export default function App() {
             <span className="meta" style={{ fontSize: 10, border: 0, padding: 0 }}>{active.content.length} characters</span>
           </div>
           <textarea ref={taRef} value={active.content} onChange={onEditorChange} onPaste={onPaste}
-            spellCheck={false} placeholder="Paste items here to auto-index them…" />
+            spellCheck={false} autoCorrect="off" autoCapitalize="off" placeholder="Paste items here to auto-index them…" />
         </section>
 
         <section style={{ display: "flex", flexDirection: "column", gap: ".6rem" }}>
