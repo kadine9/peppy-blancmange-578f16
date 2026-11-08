@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, useCallback } fr
 import { createClient } from "@supabase/supabase-js";
 import {
   Plus, X, Cloud, Copy, Download, Trash2, AlertCircle, Check, Pencil,
-  Zap, AlignJustify, FileText, ChevronUp, ChevronDown, Layers, Eraser, ClipboardCopy, ClipboardPaste,
+  Zap, AlignJustify, FileText, ChevronUp, ChevronDown, Layers, Eraser, ClipboardCopy, Search, Upload,
 } from "lucide-react";
 import Floaters from "./components/Floaters.jsx";
 import CloudPanel from "./components/CloudPanel.jsx";
@@ -74,12 +74,24 @@ export default function App() {
   const [importOpen, setImportOpen] = useState(false);
   const [importText, setImportText] = useState("");
   const [renamingId, setRenamingId] = useState(null);
+  const [searchQuery, setSearchQuery] = useState("");
   const timer = useRef(null), flashTimer = useRef(null), loaded = useRef(false);
   const taRef = useRef(null), pendingCursor = useRef(null);
   const tabsRef = useRef(tabs), dirty = useRef(false);
 
   const active = tabs.find(t => t.id === activeId) || tabs[0];
   const frags = useMemo(() => getFragments(active.content), [active.content]);
+  const q = searchQuery.trim().toLowerCase();
+  const searchResults = useMemo(() => q
+    ? tabs.map(t => ({
+        tab: t,
+        frags: getFragments(t.content).map((text, index) => ({ text, index })).filter(f => f.text.toLowerCase().includes(q)),
+      })).filter(r => r.frags.length > 0 || r.tab.name.toLowerCase().includes(q))
+    : [], [tabs, q]);
+  const openResult = (tabId, index) => {
+    setActiveId(tabId); setSearchQuery("");
+    if (index != null) setTimeout(() => go(`seg-${index}`), 80);
+  };
   const say = useCallback((msg, type = "success") => {
     setFlash({ msg, type });
     clearTimeout(flashTimer.current);
@@ -374,10 +386,11 @@ export default function App() {
             </button>
             <button
               onClick={() => setImportOpen(true)}
-              className={`${PILL} bg-white border border-[var(--border)] text-[rgba(64,44,85,0.7)] shadow-sm hover:shadow-md`}
+              className={`${PILL} text-white shadow-md`}
+              style={{ background: "linear-gradient(90deg, var(--accent), var(--secondary))" }}
             >
-              <ClipboardPaste className="w-4 h-4" style={{ color: "var(--primary)" }} />
-              Paste Tabs…
+              <Upload className="w-4 h-4" />
+              Import Tabs
             </button>
             <button
               onClick={clearTab}
@@ -396,11 +409,68 @@ export default function App() {
               {copiedAll ? "Copied!" : "Copy All"}
             </button>
           </div>
+
+          {/* Search bar */}
+          <div className="relative">
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--muted-foreground)] pointer-events-none" />
+            <input
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search tabs and segments…"
+              className="w-full pl-11 pr-10 py-3 text-sm bg-white/80 border border-[var(--border)] rounded-2xl focus:outline-none focus:ring-2 focus:ring-[rgba(184,95,204,0.3)] placeholder:text-[var(--muted-foreground)] transition-all"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery("")}
+                className="absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-lg text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[var(--foreground)] transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
+          </div>
         </header>
+
+        {/* Search results panel */}
+        {q && (
+          <div className="rounded-[1.5rem] bg-white/70 border border-[var(--border)] p-5 shadow-md">
+            {searchResults.length === 0 ? (
+              <div className="text-center py-8 text-sm text-[var(--muted-foreground)]">No matching tabs or segments found.</div>
+            ) : (
+              <div className="flex flex-col gap-4">
+                {searchResults.map((r) => (
+                  <div key={r.tab.id} className="flex flex-col gap-2">
+                    <div className="flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full shrink-0" style={{ background: r.tab.id === active.id ? "var(--primary)" : "var(--border)" }} />
+                      <button
+                        onClick={() => openResult(r.tab.id)}
+                        className="text-sm font-bold text-[var(--foreground)] hover:text-[var(--primary)] transition-colors text-left"
+                      >
+                        {r.tab.name}
+                      </button>
+                      <span className="text-[10px] text-[var(--muted-foreground)]">
+                        {r.frags.length} match{r.frags.length === 1 ? "" : "es"}
+                      </span>
+                    </div>
+                    {r.frags.map((f) => (
+                      <button
+                        key={f.index}
+                        onClick={() => openResult(r.tab.id, f.index)}
+                        className="text-left px-3 py-2 rounded-xl bg-white/60 border border-[var(--border)] text-xs text-[var(--muted-foreground)] hover:border-[rgba(184,95,204,0.4)] hover:bg-white transition-all [overflow-wrap:anywhere]"
+                      >
+                        <span className="font-mono text-[10px] text-[var(--primary)] mr-2">#{f.index + 1}</span>
+                        {f.text.slice(0, 120)}{f.text.length > 120 ? "…" : ""}
+                      </button>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Tabs bar */}
         <div className="flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar">
-          {tabs.map((t) => {
+          {(q ? tabs.filter(t => t.name.toLowerCase().includes(q)) : tabs).map((t) => {
             const isActive = t.id === active.id;
             return (
               <div
@@ -584,34 +654,45 @@ export default function App() {
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between">
-              <strong className="font-display text-lg">Paste tabs</strong>
+              <div className="flex items-center gap-2">
+                <div
+                  className="grid place-items-center w-9 h-9 rounded-xl text-white"
+                  style={{ background: "linear-gradient(135deg, var(--accent), var(--secondary))" }}
+                >
+                  <Upload className="w-4 h-4" />
+                </div>
+                <h2 className="text-lg font-bold text-[var(--foreground)] m-0">Import Tabs</h2>
+              </div>
               <button onClick={() => setImportOpen(false)} className="p-1.5 rounded-lg text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[var(--foreground)]">
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <p className="m-0 text-sm font-medium text-[var(--muted-foreground)] leading-relaxed">
-              Paste text from “Copy All Tabs” or a downloaded file. Each “===== Name =====” (or “=== [Tab: Name] ===”) section becomes a tab, keeping its own “--- [Paste #n] ---” segments. Plain text becomes one tab.
+            <p className="m-0 text-sm text-[var(--muted-foreground)]">
+              Paste the text you copied with “Copy All Tabs” to recreate all tabs here. Plain text becomes one tab.
             </p>
             <textarea
               autoFocus
               value={importText}
               onChange={(e) => setImportText(e.target.value)}
-              className="w-full h-[40vh] p-4 bg-white/90 border-2 border-[var(--border)] rounded-[1.25rem] outline-none font-mono text-sm whitespace-pre-wrap [overflow-wrap:anywhere] text-[rgba(64,44,85,0.9)] resize-none shadow-sm transition-all focus:shadow-[0_0_0_4px_rgba(184,95,204,0.18)] focus:border-[rgba(184,95,204,0.5)]"
+              placeholder="Paste your copied tabs here…"
+              spellCheck={false}
+              className="w-full h-48 p-4 placeholder:text-[rgba(124,104,146,0.6)] bg-white/90 border-2 border-[var(--border)] rounded-[1.25rem] outline-none font-mono text-sm whitespace-pre-wrap [overflow-wrap:anywhere] text-[rgba(64,44,85,0.9)] resize-none shadow-sm transition-all focus:shadow-[0_0_0_4px_rgba(184,95,204,0.18)] focus:border-[rgba(184,95,204,0.5)]"
             />
             <div className="flex flex-wrap justify-end gap-2">
               <button
                 onClick={() => setImportOpen(false)}
-                className={`${PILL} bg-white border border-[var(--border)] text-[rgba(64,44,85,0.7)] shadow-sm hover:shadow-md`}
+                className="px-4 py-2.5 rounded-xl text-sm font-semibold text-[var(--muted-foreground)] hover:bg-[var(--muted)] transition-colors"
               >
                 Cancel
               </button>
               <button
                 disabled={!importText.trim()}
                 onClick={runImport}
-                className={`${PILL} text-white shadow-md disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100`}
-                style={{ background: "linear-gradient(90deg, var(--primary), var(--rose))" }}
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold text-white shadow-md transition-all hover:scale-105 disabled:opacity-50 disabled:hover:scale-100"
+                style={{ background: "linear-gradient(90deg, var(--accent), var(--secondary))" }}
               >
-                Create tabs
+                <Upload className="w-4 h-4" />
+                Import Tabs
               </button>
             </div>
           </div>
